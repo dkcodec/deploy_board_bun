@@ -5,6 +5,7 @@ export interface Project {
   type: 'ssh' | 'docker' | 'do'
   config: unknown
   created_at: Date
+  deleted_at: Date | null
 }
 
 export interface ProjectList {

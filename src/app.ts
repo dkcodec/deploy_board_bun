@@ -1,26 +1,28 @@
-import { Elysia } from "elysia";
-import { cors } from "@elysiajs/cors";
-import { authModule } from "./modules/auth/auth.routes";
-import { jwtPlugin } from "./plugins/jwt";
-import { AppError } from "./utils/errors";
-import { projectsModule } from "./modules/projects/projects.routes";
+import { Elysia } from 'elysia'
+import { cors } from '@elysiajs/cors'
+import { authRoutes } from './modules/auth/auth.routes'
+import { AppError } from './utils/errors'
+import { projectsRoutes } from './modules/projects/projects.routes'
+import { environmentsRoutes } from './modules/environments/environments.routes'
+import { variablesRoutes } from './modules/variables/variables.routes'
 
 export const app = new Elysia()
   .onError(({ error, set }) => {
     if (error instanceof AppError) {
-      set.status = error.status;
+      set.status = error.status
       return {
         message: error.message,
-      };
+      }
     }
 
-    console.error(error);
-    set.status = 500;
+    set.status = 500
     return {
-      message: "Internal server error",
-    };
+      message: 'Internal server error',
+    }
   })
   .use(cors())
-  .use(authModule)
-  .use(projectsModule)
-  .get("/health", () => ({ ok: true }));
+  .use(authRoutes)
+  .use(projectsRoutes)
+  .use(environmentsRoutes)
+  .use(variablesRoutes)
+  .get('/health', () => ({ ok: true }))

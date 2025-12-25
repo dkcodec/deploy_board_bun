@@ -1,63 +1,63 @@
-import { Elysia, t } from "elysia";
-import { authService } from "./auth.service";
-import { jwtPlugin } from "../../plugins/jwt";
+import { Elysia, t } from 'elysia'
+import { authService } from './auth.service'
+import { jwtPlugin } from '../../plugins/jwt'
 
-export const authModule = new Elysia({ prefix: "/auth" })
+export const authRoutes = new Elysia({ prefix: '/auth' })
   .use(jwtPlugin)
   .post(
-    "/register",
+    '/register',
     async ({ body }) => {
-      const user = await authService.register(body.email, body.password);
-      return { id: user.id, email: user.email };
+      const user = await authService.register(body.email, body.password)
+      return { id: user.id, email: user.email }
     },
     {
       body: t.Object({
-        email: t.String({ format: "email" }),
+        email: t.String({ format: 'email' }),
         password: t.String({ minLength: 6 }),
       }),
-    },
+    }
   )
   .post(
-    "/login",
+    '/login',
     async ({ body, jwt }) => {
       const { user, refreshToken } = await authService.login(
         body.email,
-        body.password,
-      );
-      const accessToken = await jwt.sign({ sub: user.id });
+        body.password
+      )
+      const accessToken = await jwt.sign({ sub: user.id })
 
-      return { accessToken, refreshToken };
+      return { accessToken, refreshToken }
     },
     {
       body: t.Object({
         email: t.String(),
         password: t.String(),
       }),
-    },
+    }
   )
   .post(
-    "/refresh",
+    '/refresh',
     async ({ body, jwt }) => {
-      const { userId } = await authService.refresh(body.refreshToken);
-      const accessToken = await jwt.sign({ sub: userId });
+      const { userId } = await authService.refresh(body.refreshToken)
+      const accessToken = await jwt.sign({ sub: userId })
 
-      return { accessToken };
+      return { accessToken }
     },
     {
       body: t.Object({
         refreshToken: t.String(),
       }),
-    },
+    }
   )
   .post(
-    "/logout",
+    '/logout',
     async ({ body }) => {
-      await authService.logout(body.userId);
-      return { message: "Logged out successfully" };
+      await authService.logout(body.userId)
+      return { message: 'Logged out successfully' }
     },
     {
       body: t.Object({
-        userId: t.String({ format: "uuid" }),
+        userId: t.String({ format: 'uuid' }),
       }),
-    },
-  );
+    }
+  )

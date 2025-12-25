@@ -1,57 +1,56 @@
 import { Project, ProjectList } from '../../models/project.model'
-import { query, execute } from '../../infra/db'
 import { NotFoundError, ForbiddenError } from '../../utils/errors'
 import { ORDER_MAP } from '../../types/project.types'
+import { projectsRepository } from './projects.repository'
 
+// Сервис проектов - содержит бизнес-логику
 export const projectsService = {
+  // Создание нового проекта
   async create(
     userId: string,
     data: { name: string; type: Project['type']; config?: unknown }
   ): Promise<Project> {
-    const projects = await query<Project>(
-      `
-      INSERT INTO projects (user_id, name, type, config)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *`,
-      [userId, data.name, data.type, data.config ?? null]
+    return await projectsRepository.create(
+      userId,
+      data.name,
+      data.type,
+      data.config
     )
-
-    return projects[0]
   },
 
-  async list(
-    userId: string,
-    page: number = 1,
-    limit: number = 20,
-    sort: keyof typeof ORDER_MAP = 'createdAt',
-    order: 'asc' | 'desc' = 'desc'
-  ): Promise<ProjectList> {
+  // Получение списка проектов с пагинацией
+  async list({
+    userId,
+    page = 1,
+    limit = 20,
+    sort = 'createdAt',
+    order = 'desc',
+  }: {
+    userId: string
+    page: number
+    limit: number
+    sort: keyof typeof ORDER_MAP
+    order: 'asc' | 'desc'
+  }): Promise<ProjectList> {
     const offset = (page - 1) * limit
     const orderBy = ORDER_MAP[sort]
     const fetchLimit = limit + 1
 
-    const [{ count }] = await query<{ count: string }>(
-      `
-      SELECT COUNT(*) FROM projects
-      WHERE user_id = $1
-      `,
-      [userId]
-    )
+    // Получаем общее количество и список проектов
+    const [total, projects] = await Promise.all([
+      projectsRepository.countByUserId(userId),
+      projectsRepository.findByUserId(
+        userId,
+        fetchLimit,
+        offset,
+        orderBy,
+        order
+      ),
+    ])
 
-    const total = parseInt(count, 10)
     const totalPages = Math.ceil(total / limit)
 
-    const projects = await query<Project>(
-      `
-      SELECT * FROM projects
-      WHERE user_id = $1
-      ORDER BY ${orderBy} ${order}
-      LIMIT $2 OFFSET $3
-      `,
-      [userId, fetchLimit, offset]
-    )
-
-    if (projects.length === 0)
+    if (projects.length === 0) {
       return {
         results: [],
         page,
@@ -60,7 +59,9 @@ export const projectsService = {
         totalPages,
         hasMore: false,
       }
+    }
 
+    // Проверяем, есть ли еще страницы
     const hasMore = projects.length > limit
     const results = hasMore ? projects.slice(0, limit) : projects
 
@@ -74,18 +75,16 @@ export const projectsService = {
     }
   },
 
+  // Получение проекта по ID
   async getById(userId: string, projectId: string): Promise<Project> {
-    const projects = await query<Project>(
-      `
-      SELECT * FROM projects
-      WHERE id = $1 AND user_id = $2
-      `,
-      [projectId, userId]
+    const project = await projectsRepository.findByIdAndUserId(
+      projectId,
+      userId
     )
 
-    const project = projects[0]
     if (!project) throw new NotFoundError('Project not found')
 
+    // Дополнительная проверка доступа (хотя уже проверено в запросе)
     if (project.user_id !== userId) {
       throw new ForbiddenError('Access denied')
     }
@@ -93,13 +92,11 @@ export const projectsService = {
     return project
   },
 
+  // Удаление проекта
   async delete(userId: string, projectId: string): Promise<void> {
-    const result = await execute(
-      `
-      DELETE FROM projects
-      WHERE user_id = $1 AND id = $2
-      `,
-      [userId, projectId]
+    const result = await projectsRepository.deleteByIdAndUserId(
+      projectId,
+      userId
     )
     if (result === 0) throw new NotFoundError('Project not found')
   },

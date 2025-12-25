@@ -1,77 +1,50 @@
-import { execute, query } from "../../infra/db";
-import { hashPassword, comparePassword } from "../../infra/crypto";
-import { generateRefreshToken } from "../../utils/token";
-import {
-  UnauthorizedError,
-  BadRequestError,
-  NotFoundError,
-} from "../../utils/errors";
+import { hashPassword, comparePassword } from '../../infra/crypto'
+import { generateRefreshToken } from '../../utils/token'
+import { UnauthorizedError } from '../../utils/errors'
+import { userRepository, refreshTokenRepository } from './auth.repository'
 
-import type { User } from "../../models/user.model";
-import type { RefreshToken } from "../../models/refresh-token.model";
+const REFRESH_TTL_DAYS = 7
 
-const ACCESS_TTL_MINUTES = 15;
-const REFRESH_TTL_DAYS = 7;
-
+// Сервис аутентификации - содержит бизнес-логику
 export const authService = {
+  // Регистрация нового пользователя
   async register(email: string, password: string) {
-    const passwordHash = await hashPassword(password);
-
-    const users = await query<User>(
-      `
-      INSERT INTO users (email, password_hash)
-      VALUES ($1, $2)
-      RETURNING *
-      `,
-      [email, passwordHash],
-    );
-
-    return users[0];
+    const passwordHash = await hashPassword(password)
+    return await userRepository.create(email, passwordHash)
   },
 
+  // Вход пользователя
   async login(email: string, password: string) {
-    const users = await query<User>(`SELECT * FROM users WHERE email = $1`, [
-      email,
-    ]);
+    const user = await userRepository.findByEmail(email)
 
-    const user = users[0];
+    if (!user) throw new UnauthorizedError('Invalid credentials')
 
-    if (!user) throw new UnauthorizedError("Invalid credentials");
+    const ok = await comparePassword(password, user.password_hash)
+    if (!ok) throw new UnauthorizedError('Invalid credentials')
 
-    const ok = await comparePassword(password, user.password_hash);
-    if (!ok) throw new UnauthorizedError("Invalid credentials");
+    // Генерация refresh токена
+    const refreshToken = generateRefreshToken()
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + REFRESH_TTL_DAYS)
 
-    const refreshToken = generateRefreshToken();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + REFRESH_TTL_DAYS);
+    await refreshTokenRepository.create(user.id, refreshToken, expiresAt)
 
-    await query(
-      `
-          INSERT INTO refresh_tokens (user_id, token, expires_at)
-          VALUES ($1, $2, $3)
-          `,
-      [user.id, refreshToken, expiresAt],
-    );
-
-    return { user, refreshToken };
+    return { user, refreshToken }
   },
 
+  // Обновление access токена через refresh токен
   async refresh(refreshToken: string) {
-    const tokens = await query<RefreshToken>(
-      `SELECT * FROM refresh_tokens WHERE token = $1 AND expires_at > now()`,
-      [refreshToken],
-    );
+    const token = await refreshTokenRepository.findValidToken(refreshToken)
 
-    const token = tokens[0];
     if (!token) {
-      throw new UnauthorizedError("Invalid refresh token");
+      throw new UnauthorizedError('Invalid refresh token')
     }
 
-    return { userId: token.user_id };
+    return { userId: token.user_id }
   },
-  async logout(refreshToken: string): Promise<void> {
-    await execute(`DELETE FROM refresh_tokens WHERE token = $1`, [
-      refreshToken,
-    ]);
+
+  // Выход пользователя
+  async logout(userId: string): Promise<void> {
+    await refreshTokenRepository.deleteByUserId(userId)
   },
-};
+}
